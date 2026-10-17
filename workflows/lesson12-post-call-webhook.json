@@ -1,0 +1,368 @@
+{
+  "name": "Lesson 12 - Post-Call Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lesson12-post-call",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "64a94b65-e6df-43b3-9b9b-c4127c842a0e",
+      "name": "Retell Post-Call Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        192
+      ],
+      "webhookId": "21859d35-58d0-498c-9886-45f6275473ee"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Security: API key from n8n Variables ($vars.RETELL_API_KEY) if available, else the placeholder below.\nconst PLACEHOLDER_KEY = 'REPLACE_WITH_RETELL_API_KEY';\nconst crypto = require('crypto');\n\nlet signatureValid = false;\nlet payload = null;\n\ntry {\n  const item = $input.first();\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  const rawBody = buf.toString('utf8');\n  try { payload = JSON.parse(rawBody); } catch (e) { payload = null; }\n\n  let apiKey = PLACEHOLDER_KEY;\n  try {\n    if ($vars && $vars.RETELL_API_KEY) apiKey = $vars.RETELL_API_KEY;\n  } catch (e) { /* variables not available */ }\n\n  const headers = item.json.headers || {};\n  const header = headers['x-retell-signature'];\n\n  if (header && typeof header === 'string' && apiKey !== PLACEHOLDER_KEY) {\n    const m = /^v=(\\d+),d=([0-9a-fA-F]+)$/.exec(header.trim());\n    if (m) {\n      const timestamp = m[1];\n      const digest = m[2].toLowerCase();\n      const ageMs = Math.abs(Date.now() - Number(timestamp));\n      if (ageMs <= 5 * 60 * 1000) {\n        const expected = crypto.createHmac('sha256', apiKey).update(rawBody + timestamp).digest('hex');\n        const a = Buffer.from(expected, 'utf8');\n        const b = Buffer.from(digest, 'utf8');\n        signatureValid = a.length === b.length && crypto.timingSafeEqual(a, b);\n      }\n    }\n  }\n} catch (e) {\n  signatureValid = false;\n}\n\nreturn [{ json: { signature_valid: signatureValid, payload: signatureValid ? payload : null } }];"
+      },
+      "id": "a85ca725-1364-461d-9869-0f186b30d33c",
+      "name": "Verify Retell Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sig",
+              "leftValue": "={{ $json.signature_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f36686cd-be0d-497e-a33e-6417a342ba43",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        512,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ev",
+              "leftValue": "={{ $json.payload.event }}",
+              "rightValue": "call_analyzed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c1080ec9-59ea-432f-b713-f8aa241076cf",
+      "name": "Is call_analyzed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        752,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const call = ($input.first().json.payload || {}).call || {};\nconst reason = call.disconnection_reason;\nlet outcome = 'answered';\nif (call.call_analysis?.custom_analysis_data?.optout_requested === true) outcome = 'opt_out_dnc';\nelse if (reason === 'voicemail_reached') outcome = 'voicemail';\nelse if (reason === 'dial_busy') outcome = 'line_busy';\nelse if (reason === 'dial_no_answer') outcome = 'no_answer';\nelse if (reason === 'dial_failed' || reason === 'invalid_destination') outcome = 'call_failed';\n\nreturn [{ json: {\n  call_sid: call.call_id,\n  to_number: call.to_number,\n  call_duration_seconds: Math.round((call.duration_ms || 0) / 1000),\n  recording_url: call.recording_url || null,\n  call_summary: call.call_analysis?.call_summary || null,\n  outcome_label: outcome.slice(0, 30),\n} }];"
+      },
+      "id": "8a038192-1735-4508-8fb6-4b3193106f5d",
+      "name": "Map Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.campaign_call_logs (lead_id, call_sid, call_duration_seconds, outcome_label, recording_url, call_summary, occurred_at)\nSELECT (SELECT lead_id FROM public.campaign_leads WHERE phone_number = $2 LIMIT 1), $1, $3, $4, $5, $6, now()\nON CONFLICT (call_sid) DO NOTHING\nRETURNING call_log_id, call_sid, outcome_label;",
+        "options": {
+          "queryReplacement": "={{ [$json.call_sid, $json.to_number, $json.call_duration_seconds, $json.outcome_label, $json.recording_url, $json.call_summary] }}"
+        }
+      },
+      "id": "252f1a9e-a825-4d3e-a480-5ee0cecec08b",
+      "name": "Log Call Outcome",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1312,
+        16
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "pOCbaUfsbcgqRyjn",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, call_sid: $(\"Map Outcome\").item.json.call_sid, outcome_label: $(\"Map Outcome\").item.json.outcome_label }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "d72a8e20-4e1b-4925-a9ac-f1a75e8d053a",
+      "name": "Respond 200 Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1568,
+        -16
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"success\": false}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "11811308-334f-4eef-a884-fc7117f74204",
+      "name": "Respond 500 Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1744,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"success\": true, \"ignored\": true}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "4c934752-5dd2-474c-ac9e-49ccf4de71fc",
+      "name": "Respond 200 Ignored",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1184,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"success\": false, \"error\": \"invalid_signature\"}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "81a1ca14-2a1d-4f87-b9f5-9b2e468f7921",
+      "name": "Respond 401 Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        752,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Security: Validates x-retell-signature. Invalid signature returns HTTP 401 and nothing is written.",
+        "color": 3
+      },
+      "id": "47b7c67b-3b7b-4da9-bd60-774bc9b2bf72",
+      "name": "Note - Security",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        528,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Reporting Callback: Parses final call outcome tags to log duration, summary, and recording links.",
+        "color": 4
+      },
+      "id": "efc999f0-778f-4026-a839-d53b93836bef",
+      "name": "Note - Reporting",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        784,
+        576
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Retell Post-Call Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify Retell Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Retell Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Is call_analyzed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 401 Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is call_analyzed?": {
+      "main": [
+        [
+          {
+            "node": "Map Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 200 Ignored",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Outcome": {
+      "main": [
+        [
+          {
+            "node": "Log Call Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Call Outcome": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 500 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 Success": {
+      "main": [
+        [],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8489551c-80fa-4d1a-bcd2-6bbb7c380096",
+  "meta": {
+    "instanceId": "da33b80be6c04b155c6559d964e7389b85095470dafe56f3cfdcba14e8406172"
+  },
+  "nodeGroups": [
+    {
+      "id": "d2b42e34-7ae2-4298-9d83-3232406b000a",
+      "name": "Verify caller",
+      "nodeIds": [
+        "a85ca725-1364-461d-9869-0f186b30d33c",
+        "f36686cd-be0d-497e-a33e-6417a342ba43"
+      ],
+      "description": "Checks the Retell signature on each incoming call webhook and rejects anything invalid with a 401"
+    },
+    {
+      "id": "84e816bc-edb9-4c58-a9e5-ad35332af4f6",
+      "name": "Record call outcome",
+      "nodeIds": [
+        "8a038192-1735-4508-8fb6-4b3193106f5d",
+        "252f1a9e-a825-4d3e-a480-5ee0cecec08b",
+        "d72a8e20-4e1b-4925-a9ac-f1a75e8d053a",
+        "11811308-334f-4eef-a884-fc7117f74204"
+      ],
+      "description": "Turns analyzed calls into an outcome label, saves it to the database, and confirms or reports failure"
+    }
+  ],
+  "id": "byAaIbPbRSqRX6oK",
+  "tags": []
+}

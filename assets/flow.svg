@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 330" width="1160" height="330" role="img" aria-label="Campaign flow diagram">
+  <defs>
+    <style>
+      .box{fill:#111a33;stroke:#6366f1;stroke-width:2;rx:12;ry:12}
+      .dnc{fill:#2a1233;stroke:#d946ef}
+      .guard{fill:#2a2410;stroke:#facc15}
+      .db{fill:#0f2a24;stroke:#34d399}
+      .t{font:700 14px 'Segoe UI',Helvetica,Arial,sans-serif;fill:#fff;text-anchor:middle}
+      .s{font:500 11.5px 'Segoe UI',Helvetica,Arial,sans-serif;fill:#a5b4fc;text-anchor:middle}
+      .lbl{font:700 13px 'Segoe UI',Helvetica,Arial,sans-serif;fill:#94a3b8}
+      .flow{stroke:#22d3ee;stroke-width:3;fill:none;stroke-dasharray:8 8;animation:dash 1s linear infinite}
+      .flow2{stroke:#d946ef;stroke-width:3;fill:none;stroke-dasharray:8 8;animation:dash 1s linear infinite}
+      @keyframes dash{to{stroke-dashoffset:-16}}
+      .pulse{animation:pulse 2.4s ease-in-out infinite}
+      @keyframes pulse{0%,100%{opacity:0.75}50%{opacity:1}}
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#22d3ee"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d946ef"/></marker>
+  </defs>
+  <rect width="1160" height="330" fill="#0b1020" rx="16"/>
+  <text class="lbl" x="24" y="30">OUTBOUND DISPATCH + LOGGING</text>
+  <g class="pulse">
+    <rect class="box db" x="20" y="50" width="150" height="70"/><text class="t" x="95" y="80">Leads</text><text class="s" x="95" y="100">Supabase table</text>
+    <rect class="box guard" x="210" y="50" width="150" height="70"/><text class="t" x="285" y="80">Compliance Guard</text><text class="s" x="285" y="100">DNC + 8 AM to 9 PM</text>
+    <rect class="box guard" x="400" y="50" width="150" height="70"/><text class="t" x="475" y="80">Safety Gate</text><text class="s" x="475" y="100">BLOCKED by default</text>
+    <rect class="box" x="590" y="50" width="170" height="70"/><text class="t" x="675" y="80">Retell Call</text><text class="s" x="675" y="100">batches of 5 per second</text>
+    <rect class="box" x="800" y="50" width="170" height="70"/><text class="t" x="885" y="80">Post-Call Webhook</text><text class="s" x="885" y="100">signature check, 401 if bad</text>
+    <rect class="box db" x="1010" y="50" width="130" height="70"/><text class="t" x="1075" y="80">Call Logs</text><text class="s" x="1075" y="100">outcome + summary</text>
+  </g>
+  <path class="flow" d="M170 85 H206" marker-end="url(#a)"/>
+  <path class="flow" d="M360 85 H396" marker-end="url(#a)"/>
+  <path class="flow" d="M550 85 H586" marker-end="url(#a)"/>
+  <path class="flow" d="M760 85 H796" marker-end="url(#a)"/>
+  <path class="flow" d="M970 85 H1006" marker-end="url(#a)"/>
+
+  <text class="lbl" x="24" y="190">VERBAL OPT-OUT (DNC)</text>
+  <g class="pulse">
+    <rect class="box dnc" x="590" y="210" width="170" height="70"/><text class="t" x="675" y="240">register_dnc_optout</text><text class="s" x="675" y="260">Retell custom tool</text>
+    <rect class="box dnc" x="400" y="210" width="150" height="70"/><text class="t" x="475" y="240">DNC Webhook</text><text class="s" x="475" y="260">header auth + SQL</text>
+    <rect class="box db" x="210" y="210" width="150" height="70"/><text class="t" x="285" y="240">dnc_status = TRUE</text><text class="s" x="285" y="260">skipped next run</text>
+  </g>
+  <path class="flow2" d="M675 120 V206" marker-end="url(#b)"/>
+  <path class="flow2" d="M590 245 H554" marker-end="url(#b)"/>
+  <path class="flow2" d="M400 245 H364" marker-end="url(#b)"/>
+  <path class="flow2" d="M285 210 V124" marker-end="url(#b)"/>
+</svg>

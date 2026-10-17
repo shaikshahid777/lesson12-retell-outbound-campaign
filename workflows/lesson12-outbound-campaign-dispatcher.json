@@ -1,0 +1,655 @@
+{
+  "name": "Lesson 12 - Outbound Campaign Dispatcher",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "99aa4264-3bf7-46ef-b7fb-1f1dd55fbb5d",
+      "name": "Manual Trigger (Safe Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "call_gate",
+              "value": "BLOCKED",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "retell_from_number",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "retell_agent_id",
+              "value": "agent_766a1f061fc987c5ab6182037b",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "campaign_id",
+              "value": "lesson12-follow-up-001",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "max_calls_per_second",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "a6",
+              "name": "now_override",
+              "value": "2026-10-16T10:00:00+05:30",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6156f77b-a7fc-4527-958e-f6c6f936853f",
+      "name": "Campaign Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT lead_id, first_name, phone_number, product_name, timezone, dnc_status, last_call_attempt FROM public.campaign_leads ORDER BY lead_id",
+        "options": {}
+      },
+      "id": "db79866b-d1ee-45a7-8c43-faac5a5d653f",
+      "name": "Read Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        496,
+        224
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pOCbaUfsbcgqRyjn",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Campaign Config').first().json;\nconst PROTECTED = ['+15550000002', '+15550000003', '+15550000004'];\nconst IANA_LIKE = /^(UTC|[A-Za-z_]+(\\/[A-Za-z0-9_+\\-]+)+)$/;\nconst nowMs = cfg.now_override ? new Date(cfg.now_override).getTime() : Date.now();\nconst out = [];\nlet slot = 0;\nfor (const item of $input.all()) {\n  const l = item.json;\n  const phone = String(l.phone_number || '').trim();\n  const tz = typeof l.timezone === 'string' ? l.timezone.trim() : '';\n  let reason = null;\n  let localTime = null;\n  if (l.dnc_status === true || String(l.dnc_status).toLowerCase() === 'true') {\n    reason = 'skipped_dnc';\n  } else if (l.dnc_status !== false && String(l.dnc_status).toLowerCase() !== 'false') {\n    reason = 'skipped_dnc_status_unknown';\n  } else if (PROTECTED.includes(phone)) {\n    reason = 'skipped_protected_test_number';\n  } else if (!tz) {\n    reason = 'skipped_timezone_missing';\n  } else if (!IANA_LIKE.test(tz) || Number.isNaN(nowMs)) {\n    reason = 'skipped_timezone_invalid';\n  } else {\n    try {\n      const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(nowMs));\n      const h = Number(parts.find((p) => p.type === 'hour').value);\n      const m = Number(parts.find((p) => p.type === 'minute').value);\n      localTime = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');\n      const minutes = h * 60 + m;\n      if (!(minutes >= 480 && minutes < 1260)) reason = 'skipped_outside_call_window';\n    } catch (e) {\n      reason = 'skipped_timezone_invalid';\n    }\n  }\n  const decision = reason ? reason : 'eligible';\n  const row = {\n    lead_id: l.lead_id,\n    first_name: l.first_name,\n    phone_number: phone,\n    product_name: l.product_name,\n    timezone: tz,\n    local_time: localTime,\n    decision: decision,\n  };\n  if (!reason) {\n    row.throttle_slot = Math.floor(slot / cfg.max_calls_per_second);\n    slot += 1;\n  }\n  out.push({ json: row });\n}\nreturn out;"
+      },
+      "id": "bab5097f-9d16-41d2-9766-b8519bcfa60c",
+      "name": "Evaluate Compliance",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "elig",
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "eligible",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ca93a3d2-7679-4468-9380-6a67aa64a892",
+      "name": "Is Eligible?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        944,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "lead_id",
+              "value": "={{ $json.lead_id }}",
+              "type": "number"
+            },
+            {
+              "id": "p2",
+              "name": "throttle_slot",
+              "value": "={{ $json.throttle_slot }}",
+              "type": "number"
+            },
+            {
+              "id": "p3",
+              "name": "planned_delay_ms",
+              "value": "={{ $json.throttle_slot * 1000 }}",
+              "type": "number"
+            },
+            {
+              "id": "p4",
+              "name": "request_body",
+              "value": "={{ { from_number: $(\"Campaign Config\").first().json.retell_from_number, to_number: $json.phone_number, override_agent_id: $(\"Campaign Config\").first().json.retell_agent_id, retell_llm_dynamic_variables: { first_name: $json.first_name, product_name: $json.product_name, campaign_id: $(\"Campaign Config\").first().json.campaign_id } } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "34051720-9876-4f54-b59b-cf8a3b2c343e",
+      "name": "Prepare Retell Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1248,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "gate",
+              "leftValue": "={{ $(\"Campaign Config\").first().json.call_gate }}",
+              "rightValue": "ENABLED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ce69d4fb-4770-4e28-b769-e82dd6cd669c",
+      "name": "Safety Gate Open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "from",
+              "leftValue": "={{ $json.request_body.from_number }}",
+              "rightValue": "^\\+[1-9][0-9]{6,14}$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            },
+            {
+              "id": "agent",
+              "leftValue": "={{ $json.request_body.override_agent_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3bd5f428-ee38-4a8c-a788-36ee08cec000",
+      "name": "Required Config Present?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.retellai.com/v2/create-phone-call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request_body }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 5
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "91b548c2-cb51-4313-bda6-09088cdf3b8c",
+      "name": "Retell Create Phone Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2144,
+        -272
+      ],
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "id": "E06xZJyyGOtZe6Zd",
+          "name": "Retell API Key (SHAIK M)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cid",
+              "leftValue": "={{ $json.call_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "de25962f-5f02-4d45-a670-ef807adc0b29",
+      "name": "Call Accepted by Retell?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2368,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.campaign_leads SET last_call_attempt = now() WHERE lead_id = $1",
+        "options": {
+          "queryReplacement": "={{ [$(\"Prepare Retell Request\").item.json.lead_id] }}"
+        }
+      },
+      "id": "5e44cbb3-946a-43a1-b358-75606e1fde7e",
+      "name": "Update last_call_attempt",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2592,
+        -400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pOCbaUfsbcgqRyjn",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "lead_id",
+              "value": "={{ $(\"Prepare Retell Request\").item.json.lead_id }}",
+              "type": "number"
+            },
+            {
+              "id": "s2",
+              "name": "error_summary",
+              "value": "={{ \"Retell dispatch failed: \" + String($input.item.json[\"error\"] && $input.item.json[\"error\"][\"message\"] ? $input.item.json[\"error\"][\"message\"] : ($input.item.json[\"message\"] || \"no call_id in response\")).replace(/Bearer\\s+\\S+/gi, \"[redacted]\").slice(0, 200) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "004f7cd7-5b3b-44ea-b67b-605838e19d60",
+      "name": "Sanitize Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2592,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "Missing configuration: a valid Retell from_number (E.164) and agent ID are required. No Retell API call was made."
+      },
+      "id": "56cabea9-7ef2-4519-be95-0a026c553cd6",
+      "name": "Stop - Missing Configuration",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2208,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d1",
+              "name": "result",
+              "value": "BLOCKED_BY_SAFETY_GATE_NO_API_CALL_MADE",
+              "type": "string"
+            },
+            {
+              "id": "d2",
+              "name": "would_post_to",
+              "value": "https://api.retellai.com/v2/create-phone-call",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "9c688165-3a6d-4d44-934c-ed4b9f30ef22",
+      "name": "Dry Run - Call Blocked",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1696,
+        16
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "84b0482c-c1ea-44b3-95ea-744d3579e9d8",
+      "name": "Skipped (Not Called)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.campaign_call_logs (lead_id, call_sid, outcome_label, call_summary, occurred_at) VALUES ($1, $2, 'dispatch_error', $3, now())",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id, 'dispatch_error_' + $json.lead_id + '_' + Date.now(), $json.error_summary] }}"
+        }
+      },
+      "id": "21e3dfd4-d664-4bad-a1f2-99d4ff5d4b09",
+      "name": "Log Dispatch Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2816,
+        -176
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "pOCbaUfsbcgqRyjn",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger (Safe Test)": {
+      "main": [
+        [
+          {
+            "node": "Campaign Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign Config": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Compliance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Compliance": {
+      "main": [
+        [
+          {
+            "node": "Is Eligible?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Eligible?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Retell Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped (Not Called)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Retell Request": {
+      "main": [
+        [
+          {
+            "node": "Safety Gate Open?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Safety Gate Open?": {
+      "main": [
+        [
+          {
+            "node": "Required Config Present?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dry Run - Call Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Required Config Present?": {
+      "main": [
+        [
+          {
+            "node": "Retell Create Phone Call",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Missing Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell Create Phone Call": {
+      "main": [
+        [
+          {
+            "node": "Call Accepted by Retell?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sanitize Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Accepted by Retell?": {
+      "main": [
+        [
+          {
+            "node": "Update last_call_attempt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sanitize Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize Error": {
+      "main": [
+        [
+          {
+            "node": "Log Dispatch Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "588475b2-9f65-4951-81b8-0706a1a2e9ec",
+  "meta": {
+    "instanceId": "da33b80be6c04b155c6559d964e7389b85095470dafe56f3cfdcba14e8406172"
+  },
+  "nodeGroups": [
+    {
+      "id": "6e18370c-ff0f-46d4-8e7f-45644c3593ee",
+      "name": "Select eligible leads",
+      "nodeIds": [
+        "db79866b-d1ee-45a7-8c43-faac5a5d653f",
+        "bab5097f-9d16-41d2-9766-b8519bcfa60c",
+        "ca93a3d2-7679-4468-9380-6a67aa64a892"
+      ],
+      "description": "Reads all leads, drops DNC, bad or missing timezones and anyone outside 08:00-21:00 local time"
+    },
+    {
+      "id": "633ab0c0-573a-47f9-998b-d724b7d1fbb4",
+      "name": "Apply safety gate",
+      "nodeIds": [
+        "34051720-9876-4f54-b59b-cf8a3b2c343e",
+        "ce69d4fb-4770-4e28-b769-e82dd6cd669c",
+        "9c688165-3a6d-4d44-934c-ed4b9f30ef22",
+        "3bd5f428-ee38-4a8c-a788-36ee08cec000"
+      ],
+      "description": "Builds each Retell request; blocks it unless the gate is ENABLED and required config exists"
+    },
+    {
+      "id": "8c151361-664d-43eb-9059-c40de649d4cd",
+      "name": "Place call and record",
+      "nodeIds": [
+        "91b548c2-cb51-4313-bda6-09088cdf3b8c",
+        "de25962f-5f02-4d45-a670-ef807adc0b29",
+        "5e44cbb3-946a-43a1-b358-75606e1fde7e",
+        "004f7cd7-5b3b-44ea-b67b-605838e19d60",
+        "21e3dfd4-d664-4bad-a1f2-99d4ff5d4b09"
+      ],
+      "description": "Throttled to 5 per second; stamps last attempt on accepted calls, logs failures without secrets"
+    }
+  ],
+  "id": "a8kNfaYEXMrcAcHi",
+  "tags": []
+}

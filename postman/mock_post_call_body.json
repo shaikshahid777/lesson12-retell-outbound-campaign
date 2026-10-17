@@ -1,0 +1,16 @@
+{
+  "event": "call_analyzed",
+  "call": {
+    "call_id": "mock_call_001",
+    "call_status": "ended",
+    "to_number": "+91XXXXXXXXXX",
+    "duration_ms": 45000,
+    "recording_url": "https://example.com/mock.wav",
+    "disconnection_reason": "user_hangup",
+    "call_analysis": {
+      "call_summary": "Mock summary for testing.",
+      "user_sentiment": "Positive",
+      "custom_analysis_data": { "optout_requested": false }
+    }
+  }
+}

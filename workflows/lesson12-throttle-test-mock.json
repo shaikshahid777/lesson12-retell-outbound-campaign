@@ -1,0 +1,128 @@
+{
+  "name": "Lesson 12 - Throttle Test (Mock)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "6285f901-6183-4997-9e28-a4efc1305373",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nfor (let i = 1; i <= 15; i++) {\n  items.push({ json: { lead_id: i, to_number: '+1555000' + String(100 + i), note: 'mock only' } });\n}\nreturn items;"
+      },
+      "id": "15400bc6-b676-42a8-82b7-d08e15c13ce7",
+      "name": "Generate 15 Mock Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://httpbin.org/anything",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to_number: $json.to_number, lead_id: $json.lead_id }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 5
+            }
+          }
+        }
+      },
+      "id": "d63ee6e1-3228-4618-ab7a-233626b3fdb2",
+      "name": "Mock Retell Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst counts = {};\nlet found = 0;\nfor (const it of items) {\n  const j = it.json || {};\n  const sources = [j.headers, j.body && j.body.headers, j.data && typeof j.data === 'object' ? j.data.headers : null];\n  let trace = null;\n  for (const h of sources) {\n    if (h && typeof h === 'object') {\n      trace = h['X-Amzn-Trace-Id'] || h['x-amzn-trace-id'];\n      if (trace) break;\n    }\n  }\n  if (!trace) continue;\n  const m = /Root=1-([0-9a-fA-F]{8})/.exec(String(trace));\n  if (!m) continue;\n  const sec = parseInt(m[1], 16);\n  counts[sec] = (counts[sec] || 0) + 1;\n  found++;\n}\nif (found === 0) {\n  return [{ json: { error: 'trace header not found', sample: items[0] ? Object.keys(items[0].json || {}) : [] } }];\n}\nconst max = Math.max(...Object.values(counts));\nreturn [{ json: { total_requests: found, requests_per_second: counts, max_per_second: max, limit: 5, pass: max <= 5 } }];"
+      },
+      "id": "934c62c9-3e86-4d07-8e16-1f8d2455c226",
+      "name": "Throttle Evidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "TC-005 Throttle Test: 15 mock requests sent in batches of 5 every 1000 ms. No real calls."
+      },
+      "id": "95b2c5fc-eb56-4485-9ae8-721600ef1d93",
+      "name": "Note - TC-005",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        192
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate 15 Mock Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate 15 Mock Leads": {
+      "main": [
+        [
+          {
+            "node": "Mock Retell Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Retell Call": {
+      "main": [
+        [
+          {
+            "node": "Throttle Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "10cf38a3-70fd-492d-ace2-95672244b301",
+  "meta": {
+    "instanceId": "da33b80be6c04b155c6559d964e7389b85095470dafe56f3cfdcba14e8406172"
+  },
+  "nodeGroups": [],
+  "id": "EsF0WM40mM6w7uoi",
+  "tags": []
+}

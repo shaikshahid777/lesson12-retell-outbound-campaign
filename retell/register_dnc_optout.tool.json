@@ -1,0 +1,15 @@
+{
+  "name": "register_dnc_optout",
+  "description": "Registers the caller's phone number to the Do-Not-Call (DNC) list. Invoke immediately upon verbal opt-out.",
+  "method": "POST",
+  "url": "https://<your-n8n-host>/webhook/lesson12-dnc-registry",
+  "headers": { "X-DNC-Secret": "<set in Retell and in the n8n Header Auth credential, never committed>" },
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "phone_number": { "type": "string", "description": "The E.164 formatted number of the caller to register (e.g. +14155552671)." },
+      "optout_reason": { "type": "string", "description": "The specific phrase or context matching the opt-out statement." }
+    },
+    "required": ["phone_number", "optout_reason"]
+  }
+}
